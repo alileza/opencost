@@ -95,6 +95,7 @@ const (
 	PrometheusRetryOnRateLimitDefaultWaitEnvVar = "PROMETHEUS_RETRY_ON_RATE_LIMIT_DEFAULT_WAIT"
 
 	PrometheusHeaderXScopeOrgIdEnvVar = "PROMETHEUS_HEADER_X_SCOPE_ORGID"
+	PrometheusMetricPrefix            = "PROMETHEUS_METRIC_PREFIX"
 
 	IngestPodUIDEnvVar = "INGEST_POD_UID"
 
@@ -190,6 +191,10 @@ func GetPrometheusRetryOnRateLimitDefaultWait() time.Duration {
 // "PROMETHEUS_SERVER_ENDPOINT": "http://mimir-url/prometheus/"
 func GetPrometheusHeaderXScopeOrgId() string {
 	return Get(PrometheusHeaderXScopeOrgIdEnvVar, "")
+}
+
+func GetPrometheusMetricPrefix() string {
+	return Get(PrometheusMetricPrefix, "")
 }
 
 // GetPrometheusQueryOffset returns the time.Duration to offset all prometheus queries by. NOTE: This env var is applied

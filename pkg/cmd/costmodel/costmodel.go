@@ -36,7 +36,9 @@ func Execute(opts *CostModelOpts) error {
 	log.Infof("Starting cost-model version %s", version.FriendlyVersion())
 	a := costmodel.Initialize()
 
-	err := StartExportWorker(context.Background(), a.Model)
+	immediateTriggerCSVchannel := make(chan struct{})
+
+	err := StartExportWorker(context.Background(), a.Model, immediateTriggerCSVchannel)
 	if err != nil {
 		log.Errorf("couldn't start CSV export worker: %v", err)
 	}
@@ -53,6 +55,11 @@ func Execute(opts *CostModelOpts) error {
 	a.Router.GET("/allocation", a.ComputeAllocationHandler)
 	a.Router.GET("/allocation/summary", a.ComputeAllocationHandlerSummary)
 	a.Router.GET("/assets", a.ComputeAssetsHandler)
+
+	a.Router.POST("/csv-export", func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+		immediateTriggerCSVchannel <- struct{}{}
+		w.WriteHeader(http.StatusOK)
+	})
 
 	a.Router.GET("/cloudCost", a.CloudCostQueryService.GetCloudCostHandler())
 	a.Router.GET("/cloudCost/view/graph", a.CloudCostQueryService.GetCloudCostViewGraphHandler())
@@ -81,7 +88,7 @@ func Execute(opts *CostModelOpts) error {
 	return http.ListenAndServe(":9003", errors.PanicHandlerMiddleware(handler))
 }
 
-func StartExportWorker(ctx context.Context, model costmodel.AllocationModel) error {
+func StartExportWorker(ctx context.Context, model costmodel.AllocationModel, immediateTrigger chan struct{}) error {
 	exportPath := env.GetExportCSVFile()
 	if exportPath == "" {
 		log.Infof("%s is not set, CSV export is disabled", env.ExportCSVFile)
@@ -91,6 +98,7 @@ func StartExportWorker(ctx context.Context, model costmodel.AllocationModel) err
 	if err != nil {
 		return fmt.Errorf("could not create file manager: %v", err)
 	}
+
 	go func() {
 		log.Info("Starting CSV exporter worker...")
 
@@ -100,6 +108,16 @@ func StartExportWorker(ctx context.Context, model costmodel.AllocationModel) err
 			select {
 			case <-ctx.Done():
 				return
+			case <-immediateTrigger:
+				err := costmodel.UpdateCSV(ctx, fm, model, env.GetExportCSVLabelsAll(), env.GetExportCSVLabelsList())
+				if err != nil {
+					// it's background worker, log error and carry on, maybe next time it will work
+					log.Errorf("Error updating CSV: %s", err)
+				}
+				now := time.Now().UTC()
+				// next launch is at 00:10 UTC tomorrow
+				// extra 10 minutes is to let prometheus to collect all the data for the previous day
+				nextRunAt = time.Date(now.Year(), now.Month(), now.Day(), 0, 10, 0, 0, now.Location()).AddDate(0, 0, 1)
 			case <-time.After(nextRunAt.Sub(time.Now())):
 				err := costmodel.UpdateCSV(ctx, fm, model, env.GetExportCSVLabelsAll(), env.GetExportCSVLabelsList())
 				if err != nil {
