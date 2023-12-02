@@ -792,18 +792,27 @@ func findDeletedNodeInfo(cli prometheusClient.Client, missingNodes map[string]*c
 			offsetStr = fmt.Sprintf("offset %s", offset)
 		}
 
-		queryHistoricalCPUCost := fmt.Sprintf(`avg(avg_over_time(node_cpu_hourly_cost{%s}[%s] %s)) by (node, instance, %s)`, env.GetPromClusterFilter(), window, offsetStr, env.GetPromClusterLabel())
-		queryHistoricalRAMCost := fmt.Sprintf(`avg(avg_over_time(node_ram_hourly_cost{%s}[%s] %s)) by (node, instance, %s)`, env.GetPromClusterFilter(), window, offsetStr, env.GetPromClusterLabel())
-		queryHistoricalGPUCost := fmt.Sprintf(`avg(avg_over_time(node_gpu_hourly_cost{%s}[%s] %s)) by (node, instance, %s)`, env.GetPromClusterFilter(), window, offsetStr, env.GetPromClusterLabel())
+		queryHistoricalCPUCost := fmt.Sprintf(`avg(avg_over_time(opencost_node_cpu_hourly_cost{%s}[%s] %s)) by (node, instance, %s)`, env.GetPromClusterFilter(), window, offsetStr, env.GetPromClusterLabel())
+		queryHistoricalRAMCost := fmt.Sprintf(`avg(avg_over_time(opencost_node_ram_hourly_cost{%s}[%s] %s)) by (node, instance, %s)`, env.GetPromClusterFilter(), window, offsetStr, env.GetPromClusterLabel())
+		queryHistoricalGPUCost := fmt.Sprintf(`avg(avg_over_time(opencost_node_gpu_hourly_cost{%s}[%s] %s)) by (node, instance, %s)`, env.GetPromClusterFilter(), window, offsetStr, env.GetPromClusterLabel())
 
 		ctx := prom.NewNamedContext(cli, prom.ComputeCostDataContextName)
 		cpuCostResCh := ctx.Query(queryHistoricalCPUCost)
 		ramCostResCh := ctx.Query(queryHistoricalRAMCost)
 		gpuCostResCh := ctx.Query(queryHistoricalGPUCost)
 
-		cpuCostRes, _ := cpuCostResCh.Await()
-		ramCostRes, _ := ramCostResCh.Await()
-		gpuCostRes, _ := gpuCostResCh.Await()
+		cpuCostRes, err := cpuCostResCh.Await()
+		if err != nil {
+			log.Errorf("failed to parse historical cpu costs: %s", err.Error())
+		}
+		ramCostRes, err := ramCostResCh.Await()
+		if err != nil {
+			log.Errorf("failed to parse historical ram costs: %s", err.Error())
+		}
+		gpuCostRes, err := gpuCostResCh.Await()
+		if err != nil {
+			log.Errorf("failed to parse historical gpu costs: %s", err.Error())
+		}
 		if ctx.HasErrors() {
 			return ctx.ErrorCollection()
 		}
