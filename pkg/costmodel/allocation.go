@@ -17,8 +17,8 @@ const (
 	// upstream KSM has implementation change vs OC internal KSM - it sets metric to 0 when pod goes down
 	// VS OC implementation which stops emitting it
 	// by adding != 0 filter, we keep just the active times in the prom result
-	queryFmtPods                        = `avg(kube_pod_container_status_running{%s} != 0) by (pod, namespace, %s)[%s:%s]`
-	queryFmtPodsUID                     = `avg(kube_pod_container_status_running{%s} != 0) by (pod, namespace, uid, %s)[%s:%s]`
+	queryFmtPods    = `avg(kube_pod_container_status_running{%s} != 0) by (pod, namespace, %s)[%s:%s]`
+	queryFmtPodsUID = `avg(kube_pod_container_status_running{%s} != 0) by (pod, namespace, uid, %s)[%s:%s]`
 
 	queryFmtRAMBytesAllocated           = `avg(avg_over_time(container_memory_allocation_bytes{container!="", container!="POD", node!="", %s}[%s])) by (container, pod, namespace, node, %s, provider_id)`
 	queryFmtRAMRequests                 = `avg(avg_over_time(kube_pod_container_resource_requests{resource="memory", unit="byte", container!="", container!="POD", node!="", %s}[%s])) by (container, pod, namespace, node, %s)`
@@ -406,7 +406,10 @@ func (cm *CostModel) computeAllocation(start, end time.Time, resolution time.Dur
 
 	queryCPUUsageMax := fmt.Sprintf(queryFmtCPUUsageMaxRecordingRule, env.GetPromClusterFilter(), durStr, env.GetPromClusterLabel())
 	resChCPUUsageMax := ctx.QueryAtTime(queryCPUUsageMax, end)
-	resCPUUsageMax, _ := resChCPUUsageMax.Await()
+	resCPUUsageMax, err := resChCPUUsageMax.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query CPU usage max: %s", err.Error())
+	}
 	// If the recording rule has no data, try to fall back to the subquery.
 	if len(resCPUUsageMax) == 0 {
 		// The parameter after the metric ...{}[<thisone>] should be set to 2x
@@ -416,7 +419,10 @@ func (cm *CostModel) computeAllocation(start, end time.Time, resolution time.Dur
 		doubleResStr := timeutil.DurationString(2 * resolution)
 		queryCPUUsageMax = fmt.Sprintf(queryFmtCPUUsageMaxSubquery, env.GetPromClusterFilter(), doubleResStr, durStr, resStr, env.GetPromClusterLabel())
 		resChCPUUsageMax = ctx.QueryAtTime(queryCPUUsageMax, end)
-		resCPUUsageMax, _ = resChCPUUsageMax.Await()
+		resCPUUsageMax, err = resChCPUUsageMax.Await()
+		if err != nil {
+			log.Errorf("CostModel.ComputeAllocation: failed to query CPU usage max: %s", err.Error())
+		}
 
 		// This avoids logspam if there is no data for either metric (e.g. if
 		// the Prometheus didn't exist in the queried window of time).
@@ -536,60 +542,192 @@ func (cm *CostModel) computeAllocation(start, end time.Time, resolution time.Dur
 	queryLBActiveMins := fmt.Sprintf(queryFmtLBActiveMins, env.GetPromClusterFilter(), env.GetPromClusterLabel(), durStr, resStr)
 	resChLBActiveMins := ctx.QueryAtTime(queryLBActiveMins, end)
 
-	resCPUCoresAllocated, _ := resChCPUCoresAllocated.Await()
-	resCPURequests, _ := resChCPURequests.Await()
-	resCPUUsageAvg, _ := resChCPUUsageAvg.Await()
-	resRAMBytesAllocated, _ := resChRAMBytesAllocated.Await()
-	resRAMRequests, _ := resChRAMRequests.Await()
-	resRAMUsageAvg, _ := resChRAMUsageAvg.Await()
-	resRAMUsageMax, _ := resChRAMUsageMax.Await()
-	resGPUsRequested, _ := resChGPUsRequested.Await()
-	resGPUsAllocated, _ := resChGPUsAllocated.Await()
+	resCPUCoresAllocated, err := resChCPUCoresAllocated.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query CPU cores allocated: %s", err.Error())
+	}
+	resCPURequests, err := resChCPURequests.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query CPU requests: %s", err.Error())
+	}
+	resCPUUsageAvg, err := resChCPUUsageAvg.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query CPU usage avg: %s", err.Error())
+	}
+	resRAMBytesAllocated, err := resChRAMBytesAllocated.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query RAM bytes allocated: %s", err.Error())
+	}
+	resRAMRequests, err := resChRAMRequests.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query RAM requests: %s", err.Error())
+	}
+	resRAMUsageAvg, err := resChRAMUsageAvg.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query RAM usage avg: %s", err.Error())
+	}
+	resRAMUsageMax, err := resChRAMUsageMax.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query RAM usage max: %s", err.Error())
+	}
+	resGPUsRequested, err := resChGPUsRequested.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query GPU requests: %s", err.Error())
+	}
+	resGPUsAllocated, err := resChGPUsAllocated.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query GPU allocated: %s", err.Error())
+	}
 
-	resNodeCostPerCPUHr, _ := resChNodeCostPerCPUHr.Await()
-	resNodeCostPerRAMGiBHr, _ := resChNodeCostPerRAMGiBHr.Await()
-	resNodeCostPerGPUHr, _ := resChNodeCostPerGPUHr.Await()
-	resNodeIsSpot, _ := resChNodeIsSpot.Await()
-	nodeExtendedData, _ := queryExtendedNodeData(ctx, start, end, durStr, resStr)
+	resNodeCostPerCPUHr, err := resChNodeCostPerCPUHr.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query node cost per CPU hour: %s", err.Error())
+	}
+	resNodeCostPerRAMGiBHr, err := resChNodeCostPerRAMGiBHr.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query node cost per RAM GiB hour: %s", err.Error())
+	}
+	resNodeCostPerGPUHr, err := resChNodeCostPerGPUHr.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query node cost per GPU hour: %s", err.Error())
+	}
+	resNodeIsSpot, err := resChNodeIsSpot.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query node is spot: %s", err.Error())
+	}
+	nodeExtendedData, err := queryExtendedNodeData(ctx, start, end, durStr, resStr)
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query extended node data: %s", err.Error())
+	}
 
-	resPVActiveMins, _ := resChPVActiveMins.Await()
-	resPVBytes, _ := resChPVBytes.Await()
-	resPVCostPerGiBHour, _ := resChPVCostPerGiBHour.Await()
-	resPVMeta, _ := resChPVMeta.Await()
+	resPVActiveMins, err := resChPVActiveMins.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query PV active minutes: %s", err.Error())
+	}
+	resPVBytes, err := resChPVBytes.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query PV bytes: %s", err.Error())
+	}
+	resPVCostPerGiBHour, err := resChPVCostPerGiBHour.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query PVC cost per GiB hour: %s", err.Error())
+	}
+	resPVMeta, err := resChPVMeta.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query PV meta: %s", err.Error())
+	}
+	resPVCInfo, err := resChPVCInfo.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query PVC info: %s", err.Error())
+	}
+	resPVCBytesRequested, err := resChPVCBytesRequested.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query PVC bytes requested: %s", err.Error())
+	}
+	resPodPVCAllocation, err := resChPodPVCAllocation.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query pod PVC allocation: %s", err.Error())
+	}
 
-	resPVCInfo, _ := resChPVCInfo.Await()
-	resPVCBytesRequested, _ := resChPVCBytesRequested.Await()
-	resPodPVCAllocation, _ := resChPodPVCAllocation.Await()
+	resNetTransferBytes, err := resChNetTransferBytes.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query network transfer bytes: %s", err.Error())
+	}
+	resNetReceiveBytes, err := resChNetReceiveBytes.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query network receive bytes: %s", err.Error())
+	}
 
-	resNetTransferBytes, _ := resChNetTransferBytes.Await()
-	resNetReceiveBytes, _ := resChNetReceiveBytes.Await()
-	resNetZoneGiB, _ := resChNetZoneGiB.Await()
-	resNetZoneCostPerGiB, _ := resChNetZoneCostPerGiB.Await()
-	resNetRegionGiB, _ := resChNetRegionGiB.Await()
-	resNetRegionCostPerGiB, _ := resChNetRegionCostPerGiB.Await()
-	resNetInternetGiB, _ := resChNetInternetGiB.Await()
-	resNetInternetCostPerGiB, _ := resChNetInternetCostPerGiB.Await()
+	resNetZoneGiB, err := resChNetZoneGiB.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query network zone GiB: %s", err.Error())
+	}
+	resNetZoneCostPerGiB, err := resChNetZoneCostPerGiB.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query network zone cost per GiB: %s", err.Error())
+	}
+	resNetRegionGiB, err := resChNetRegionGiB.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query network region GiB: %s", err.Error())
+	}
+	resNetRegionCostPerGiB, err := resChNetRegionCostPerGiB.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query network region cost per GiB: %s", err.Error())
+	}
+	resNetInternetGiB, err := resChNetInternetGiB.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query network internet GiB: %s", err.Error())
+	}
+	resNetInternetCostPerGiB, err := resChNetInternetCostPerGiB.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query network internet cost per GiB: %s", err.Error())
+	}
 
 	var resNodeLabels []*prom.QueryResult
 	if env.GetAllocationNodeLabelsEnabled() {
 		if env.GetAllocationNodeLabelsEnabled() {
-			resNodeLabels, _ = resChNodeLabels.Await()
+			resNodeLabels, err = resChNodeLabels.Await()
+			if err != nil {
+				log.Errorf("CostModel.ComputeAllocation: failed to query node labels: %s", err.Error())
+			}
 		}
 	}
-	resNamespaceLabels, _ := resChNamespaceLabels.Await()
-	resNamespaceAnnotations, _ := resChNamespaceAnnotations.Await()
-	resPodLabels, _ := resChPodLabels.Await()
-	resPodAnnotations, _ := resChPodAnnotations.Await()
-	resServiceLabels, _ := resChServiceLabels.Await()
-	resDeploymentLabels, _ := resChDeploymentLabels.Await()
-	resStatefulSetLabels, _ := resChStatefulSetLabels.Await()
-	resDaemonSetLabels, _ := resChDaemonSetLabels.Await()
-	resPodsWithReplicaSetOwner, _ := resChPodsWithReplicaSetOwner.Await()
-	resReplicaSetsWithoutOwners, _ := resChReplicaSetsWithoutOwners.Await()
-	resReplicaSetsWithRolloutOwner, _ := resChReplicaSetsWithRolloutOwner.Await()
-	resJobLabels, _ := resChJobLabels.Await()
-	resLBCostPerHr, _ := resChLBCostPerHr.Await()
-	resLBActiveMins, _ := resChLBActiveMins.Await()
+	resNamespaceLabels, err := resChNamespaceLabels.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query namespace labels: %s", err.Error())
+	}
+	resNamespaceAnnotations, err := resChNamespaceAnnotations.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query namespace annotations: %s", err.Error())
+	}
+	resPodLabels, err := resChPodLabels.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query pod labels: %s", err.Error())
+	}
+	resPodAnnotations, err := resChPodAnnotations.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query pod annotations: %s", err.Error())
+	}
+	resServiceLabels, err := resChServiceLabels.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query service labels: %s", err.Error())
+	}
+	resDeploymentLabels, err := resChDeploymentLabels.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query deployment labels: %s", err.Error())
+	}
+	resStatefulSetLabels, err := resChStatefulSetLabels.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query statefulset labels: %s", err.Error())
+	}
+	resDaemonSetLabels, err := resChDaemonSetLabels.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query daemonset labels: %s", err.Error())
+	}
+	resPodsWithReplicaSetOwner, err := resChPodsWithReplicaSetOwner.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query pods with replica set owner: %s", err.Error())
+	}
+	resReplicaSetsWithoutOwners, err := resChReplicaSetsWithoutOwners.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query replica sets without owners: %s", err.Error())
+	}
+	resReplicaSetsWithRolloutOwner, err := resChReplicaSetsWithRolloutOwner.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query replica sets with rollout owner: %s", err.Error())
+	}
+	resJobLabels, err := resChJobLabels.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query job labels: %s", err.Error())
+	}
+	resLBCostPerHr, err := resChLBCostPerHr.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query load balancer cost per hour: %s", err.Error())
+	}
+	resLBActiveMins, err := resChLBActiveMins.Await()
+	if err != nil {
+		log.Errorf("CostModel.ComputeAllocation: failed to query load balancer active minutes: %s", err.Error())
+	}
 
 	if ctx.HasErrors() {
 		for _, err := range ctx.Errors() {
