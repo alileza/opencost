@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/opencost/opencost/pkg/log"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -156,6 +157,7 @@ func (c *S3File) Download(ctx context.Context, f *os.File) error {
 		Bucket: aws.String(c.bucket),
 		Key:    aws.String(c.key),
 	})
+	log.Warnf("Try to download from S3 bucket: %s, key: %s, err: %v", c.bucket, c.key, err)
 
 	// Convert AWS error into our own error type.
 	var notFound *types.NoSuchKey
